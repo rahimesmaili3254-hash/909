@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سامانه پیشرفته بیومتریک و بیداری سایبرنتیک (طراح: REZA)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            bg: '#030712',
+                            card: 'rgba(10, 15, 30, 0.85)',
+                            border: 'rgba(59, 130, 246, 0.3)',
+                            glow: '#3b82f6',
+                            cyan: '#06b6d4',
+                            neon: '#a855f7'
+                        }
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'spin-slow': 'spin 10s linear infinite',
+                        'float': 'float 4s ease-in-out infinite',
+                        'scanline': 'scanline 2s linear infinite'
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-6px)' }
+                        },
+                        scanline: {
+                            '0%': { transform: 'translateY(-100%)' },
+                            '100%': { transform: 'translateY(1000%)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- MediaPipe Face Mesh & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap');
+        
+        body { 
+            font-family: 'Vazirmatn', sans-serif;
+            background-color: #020617;
+            background-image: 
+                radial-gradient(circle at 15% 20%, rgba(6, 182, 212, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 50% 50%, rgba(168, 85, 247, 0.05) 0%, transparent 60%);
+            color: #f8fafc;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .glass-panel {
+            background: rgba(10, 15, 30, 0.75);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(6, 182, 212, 0.05);
+        }
+
+        .cyber-button {
+            position: relative;
+            background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+            box-shadow: 0 0 20px rgba(37, 99, 235, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .cyber-button:hover {
+            box-shadow: 0 0 30px rgba(6, 182, 212, 0.7);
+            transform: translateY(-2px);
+        }
+
+        .cyber-border-glow {
+            box-shadow: 0 0 25px rgba(6, 182, 212, 0.25);
+            border: 1px solid rgba(6, 182, 212, 0.4);
+        }
+
+        .video-container { 
+            transform: scaleX(-1); 
+        }
+
+        .scanline-effect::after {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(to bottom, transparent, rgba(6, 182, 212, 0.6), transparent);
+            animation: scanline 3s linear infinite;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .radar-grid {
+            background-size: 30px 30px;
+            background-image: 
+                linear-gradient(to right, rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(3, 7, 18, 0.9); }
+        ::-webkit-scrollbar-thumb { background: rgba(6, 182, 212, 0.5); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(6, 182, 212, 0.8); }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-between p-3 sm:p-6 radar-grid">
+
+    <div id="toast" class="fixed top-6 z-50 transition-all duration-300 transform -translate-y-20 opacity-0 bg-cyan-950/90 backdrop-blur-xl text-white px-6 py-3.5 rounded-2xl shadow-2xl font-medium text-xs border border-cyan-500/40 flex items-center gap-3">
+        <span id="toast-icon" class="text-cyan-400 text-base animate-spin">⚡</span>
+        <span id="toast-text">سامانه مهندسی‌شده توسط REZA آماده باش سایبرنتیک است</span>
+    </div>
+
+    <!-- Security PIN Modal for Reports -->
+    <div id="password-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md hidden p-4">
+        <div class="glass-panel max-w-sm w-full p-6 rounded-3xl space-y-5 shadow-2xl border-cyan-500/40">
+            <div class="text-center space-y-2">
+                <div class="inline-flex items-center justify-center p-3.5 bg-cyan-500/10 rounded-2xl text-cyan-400 mb-1 border border-cyan-500/30 animate-pulse">
+                    <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                </div>
+                <h3 class="text-sm font-bold text-white tracking-wide">پروتکل امنیتی گزارش‌های ابری REZA</h3>
+                <p class="text-xs text-slate-400">برای دسترسی به لاگ‌ها و گزارش‌های فوق‌محرمانه، کد دسترسی مدیر (طراح: REZA) را وارد کنید:</p>
+            </div>
+            
+            <div class="space-y-2">
+                <input type="password" id="report-password-input" placeholder="••••" class="w-full bg-slate-950/90 border border-slate-700/80 rounded-2xl px-4 py-3.5 text-sm text-center tracking-[0.5em] text-cyan-300 placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition shadow-inner">
+                <div id="password-error" class="text-[10px] text-rose-400 text-center hidden font-medium">⚠️ کد دسترسی اشتباه است (رمز پیش‌فرض: 1389)</div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="closePasswordModal()" class="bg-slate-900/80 hover:bg-slate-800 text-slate-300 py-3 rounded-xl text-xs transition border border-slate-800 font-medium">انصراف</button>
+                <button onclick="verifyReportPassword()" class="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 rounded-xl text-xs transition shadow-lg shadow-cyan-900/50">تایید هویت</button>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-xl w-full glass-panel p-5 sm:p-8 rounded-3xl flex flex-col items-center space-y-6 cyber-border-glow my-auto">
+        
+        <!-- Header Branding -->
+        <header class="text-center w-full space-y-2">
+            <div class="inline-flex items-center justify-center p-4 bg-gradient-to-br from-cyan-500/20 via-blue-500/10 to-purple-500/20 rounded-3xl text-cyan-400 mb-1 border border-cyan-500/30 shadow-inner animate-float">
+                <svg class="w-8 h-8 text-cyan-400 drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+            </div>
+            <h1 class="text-xl sm:text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-300 to-purple-400 drop-shadow-sm">سامانه هوشمند بیومتریک و بیداری سایبرنتیک REZA</h1>
+            <div class="inline-block bg-cyan-500/10 text-cyan-300 px-3 py-1 rounded-full text-[11px] font-semibold border border-cyan-500/30">معماری و توسعه توسط: REZA</div>
+            <p class="text-xs text-slate-400 font-medium">پایش هوشمند تشخیص بیداری و حالت خواب با ارسال خودکار گزارش به ربات مشاور</p>
+        </header>
+
+        <!-- Setup Form Section -->
+        <div id="setup-section" class="w-full space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-cyan-300/90">نام و نام خانوادگی کاربر / دانش‌آموز:</label>
+                    <input type="text" id="student-name" placeholder="مثال: آریا رادمنش" class="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-4 py-3.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition shadow-inner">
+                </div>
+                
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-cyan-300/90">پایه تحصیلی / رده:</label>
+                    <select id="student-grade" class="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-cyan-400 transition shadow-inner">
+                        <option value="هفتم متوسطه اول">هفتم متوسطه اول</option>
+                        <option value="هشتم متوسطه اول">هشتم متوسطه اول</option>
+                        <option value="نهم متوسطه اول">نهم متوسطه اول</option>
+                        <option value="دهم متوسطه دوم">دهم متوسطه دوم</option>
+                        <option value="یازدهم متوسطه دوم">یازدهم متوسطه دوم</option>
+                        <option value="دوازدهم متوسطه دوم">دوازدهم متوسطه دوم</option>
+                        <option value="دانشجویی / حرفه‌ای / سایر">دانشجویی / حرفه‌ای / سایر</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-cyan-300/90">کد شناسایی اختصاصی:</label>
+                    <input type="text" id="student-id" placeholder="مثال: 90214" class="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-4 py-3.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-400 transition shadow-inner">
+                </div>
+
+                <div class="space-y-1.5">
+                    <label class="block text-xs font-semibold text-cyan-300/90">انتخاب حالت پایش بیومتریک:</label>
+                    <select id="mode-select" class="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-cyan-400 transition shadow-inner">
+                        <option value="awake">🟢 حالت اسکن بیداری (کلاس درس و هشدار افت هشیاری)</option>
+                        <option value="sleep">🌙 حالت اسکن خواب (پایش و ثبت فاز خواب و استراحت)</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="startCalibration()" class="w-full cyber-button text-white font-bold py-4 px-6 rounded-2xl transition-all active:scale-95 text-sm cursor-pointer flex items-center justify-center gap-3 mt-3 border border-cyan-400/40">
+                <span>تایید اطلاعات و شروع اسکن ۳ مرحله‌ای REZA</span>
+                <svg class="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/></svg>
+            </button>
+        </div>
+
+        <!-- Calibration Section -->
+        <div id="calibration-section" class="w-full hidden flex-col items-center space-y-4">
+            <div class="w-full bg-slate-950/90 p-6 rounded-2xl border border-cyan-500/30 text-center space-y-4 shadow-inner relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-transparent to-blue-500/5 pointer-events-none"></div>
+                <h2 id="calib-title" class="text-sm font-bold text-cyan-400 tracking-wide">کالیبراسیون هوش مصنوعی REZA</h2>
+                <p id="calib-desc" class="text-xs text-slate-400 leading-relaxed">لطفاً سر خود را مستقیم نگاه دارید تا مرحله اول ثبت شود...</p>
+                <div class="w-full bg-slate-900 h-3.5 rounded-full overflow-hidden p-0.5 border border-slate-800 shadow-inner">
+                    <div id="calib-progress" class="bg-gradient-to-r from-cyan-400 to-blue-600 h-full w-0 rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(6,182,212,0.8)]"></div>
+                </div>
+                <div id="calib-status-hint" class="text-[11px] font-mono text-cyan-300 bg-cyan-950/40 py-2 px-3 rounded-xl border border-cyan-800/50">
+                    وضعیت: منتظر چرخش و تثبیت سر کاربر...
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Camera & Monitoring Section -->
+        <div id="camera-section" class="w-full hidden flex-col items-center space-y-4">
+            <!-- Video Box with Holographic Frame -->
+            <div class="relative w-full rounded-2xl overflow-hidden shadow-2xl border border-cyan-500/40 bg-black aspect-[3/4] max-h-[360px] scanline-effect">
+                <video id="webcam" autoplay playsinline muted class="w-full h-full object-cover video-container"></video>
+                <canvas id="snapshot-canvas" class="hidden"></canvas>
+                
+                <!-- Loading State Overlay -->
+                <div id="loading-overlay" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-xl text-white text-xs p-6 text-center space-y-3 z-20">
+                    <div class="w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(6,182,212,0.8)]"></div>
+                    <span class="font-medium text-cyan-300">در حال راه‌اندازی شبکه عصبی بیومتریک (طراح: REZA)...</span>
+                </div>
+
+                <!-- HUD Badges -->
+                <div id="ear-badge" class="absolute top-3 right-3 bg-slate-950/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl text-xs font-mono text-cyan-400 border border-cyan-500/40 shadow-lg">
+                    EAR: --
+                </div>
+
+                <div id="mode-badge" class="absolute top-3 left-3 bg-blue-600/80 backdrop-blur-md px-3.5 py-1.5 rounded-xl text-xs font-medium text-white border border-blue-400/50 shadow-lg">
+                    حالت: --
+                </div>
+            </div>
+
+            <!-- Profile Info Bar -->
+            <div id="student-profile-display" class="w-full bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-xs flex justify-between items-center text-slate-300 shadow-inner">
+                <span id="disp-name" class="font-bold text-cyan-300">کاربر: --</span>
+                <span id="disp-grade" class="bg-cyan-500/15 text-cyan-300 px-3 py-1 rounded-xl border border-cyan-500/30 font-medium">پایه: --</span>
+            </div>
+
+            <!-- AI Status Alert Box -->
+            <div id="status-box" class="w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-cyan-600 text-white transition-all duration-300 border border-cyan-400/40">
+                سامانه REZA آماده پایش بیومتریک...
+            </div>
+
+            <!-- Action Buttons Row -->
+            <div class="grid grid-cols-2 gap-3 w-full">
+                <button onclick="sendPhotoToConsultant()" class="bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold py-3.5 px-3 rounded-2xl shadow-lg shadow-indigo-900/40 transition active:scale-95 text-xs cursor-pointer border border-indigo-400/30 flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    <span>ارسال عکس به مشاور 📸</span>
+                </button>
+
+                <button onclick="requestOpenReports()" id="toggle-reports-btn" class="bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white py-3.5 px-3 rounded-2xl text-xs transition cursor-pointer border border-slate-800 flex items-center justify-center gap-1.5 shadow-sm font-medium">
+                    <span>مشاهده گزارش‌ها 🔒</span>
+                </button>
+            </div>
+
+            <!-- Locked Reports Warning Message -->
+            <div id="reports-locked-msg" class="w-full text-center py-3 bg-slate-950/60 rounded-2xl border border-slate-800/80 text-[11px] text-slate-400">
+                🔒 پنل لاگ‌ها و سوابق بیومتریک طراح REZA رمزنگاری شده است.
+            </div>
+
+            <!-- Expandable Logs Container -->
+            <div id="logs-container" class="w-full max-h-44 overflow-y-auto space-y-2 hidden p-3 bg-slate-950/90 rounded-2xl border border-slate-800 text-xs shadow-inner">
+                <div class="text-center text-xs text-slate-500 py-3">هنوز رویدادی ثبت نشده است.</div>
+            </div>
+
+            <!-- Analytics Dashboard Metrics -->
+            <div id="analytics-dashboard" class="w-full grid grid-cols-3 gap-2.5 pt-1">
+                <div class="bg-slate-950/85 border border-slate-800 p-3 rounded-2xl text-center shadow-inner">
+                    <div class="text-[10px] text-slate-400 font-medium">زمان پایش REZA</div>
+                    <div id="metric-timer" class="text-xs font-mono font-bold text-cyan-400 mt-1">00:00</div>
+                </div>
+                <div class="bg-slate-950/85 border border-slate-800 p-3 rounded-2xl text-center shadow-inner">
+                    <div id="metric-label-stat" class="text-[10px] text-slate-400 font-medium">هشدارهای بیداری</div>
+                    <div id="metric-alerts" class="text-xs font-mono font-bold text-rose-400 mt-1">0</div>
+                </div>
+                <div class="bg-slate-950/85 border border-slate-800 p-3 rounded-2xl text-center shadow-inner">
+                    <div id="metric-label-eff" class="text-[10px] text-slate-400 font-medium">شاخص تمرکز</div>
+                    <div id="metric-focus" class="text-xs font-mono font-bold text-emerald-400 mt-1">100%</div>
+                </div>
+            </div>
+            
+            <!-- Reset Button -->
+            <button onclick="resetSystem()" class="w-full bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white py-2.5 rounded-xl text-xs transition border border-slate-800 mt-1">
+                راه‌اندازی مجدد سامانه REZA ⚙️
+            </button>
+        </div>
+
+    </main>
+
+    <!-- Footer Credit -->
+    <footer class="mt-6 text-center space-y-1.5 pb-2">
+        <div class="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-slate-950/90 border border-slate-800 shadow-inner text-[11px] text-slate-400">
+            <span>سامانه هوشمند بیومتریک و بیداری سایبرنتیک | مهندس و طراح:</span>
+            <span class="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400 tracking-widest text-xs">REZA</span>
+        </div>
+        <p class="text-[9px] text-slate-600 font-mono">Cybernetic Intelligent Monitoring System - Developer: REZA (v5.3 Pro)</p>
+    </footer>
+
+    <script>
+        const BOT_TOKEN = "8737352918:AAHbDNFTeeizz8hma0C1Hf_hvlAaNVQf2ws";
+        const CHAT_ID = "8298676293";
+        const CORRECT_PASSWORD_HASH = "1389";
+
+        const setupSection = document.getElementById('setup-section');
+        const calibrationSection = document.getElementById('calibration-section');
+        const cameraSection = document.getElementById('camera-section');
+        const studentNameInput = document.getElementById('student-name');
+        const studentGradeSelect = document.getElementById('student-grade');
+        const studentIdInput = document.getElementById('student-id');
+        const modeSelect = document.getElementById('mode-select');
+        
+        const dispName = document.getElementById('disp-name');
+        const dispGrade = document.getElementById('disp-grade');
+        const videoElement = document.getElementById('webcam');
+        const snapshotCanvas = document.getElementById('snapshot-canvas');
+        const statusBox = document.getElementById('status-box');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const earBadge = document.getElementById('ear-badge');
+        const modeBadge = document.getElementById('mode-badge');
+        const toast = document.getElementById('toast');
+        const toastText = document.getElementById('toast-text');
+        
+        const calibTitle = document.getElementById('calib-title');
+        const calibDesc = document.getElementById('calib-desc');
+        const calibProgress = document.getElementById('calib-progress');
+        const calibStatusHint = document.getElementById('calib-status-hint');
+        const logsContainer = document.getElementById('logs-container');
+        const reportsLockedMsg = document.getElementById('reports-locked-msg');
+        const toggleReportsBtn = document.getElementById('toggle-reports-btn');
+
+        const passwordModal = document.getElementById('password-modal');
+        const reportPasswordInput = document.getElementById('report-password-input');
+        const passwordError = document.getElementById('password-error');
+
+        let studentData = {
+            name: "",
+            grade: "",
+            studentId: "",
+            mode: "awake"
+        };
+
+        let isCalibrating = false;
+        let calibPhase = 1; // 1: Center, 2: Left, 3: Right
+        let calibHoldFrames = 0; // Frames accumulated holding correct pose
+        const REQUIRED_HOLD_FRAMES = 25; // Strict requirement: must hold position for ~25 frames
+        
+        let consecutiveFrames = 0;
+        const CLOSED_THRESHOLD = 0.15; 
+        const FRAME_LIMIT = 10;
+        let lastAlertTime = 0;
+        let lastStateLogged = "";
+        let isReportsUnlocked = false;
+
+        let sessionSeconds = 0;
+        let alertCount = 0;
+        let sleepEventsCount = 0;
+        let totalFramesCount = 0;
+        let drowsyFramesCount = 0;
+        let sessionTimerInterval = null;
+
+        let savedSessionLogs = JSON.parse(localStorage.getItem('cyber_session_logs_reza') || '[]');
+
+        function saveLogToStorage(title, type, meta = {}) {
+            const logEntry = {
+                id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+                name: studentData.name,
+                grade: studentData.grade,
+                mode: studentData.mode,
+                title: title,
+                type: type,
+                timestamp: new Date().toISOString(),
+                displayTime: new Date().toLocaleTimeString('fa-IR'),
+                displayDate: new Date().toLocaleDateString('fa-IR'),
+                ...meta
+            };
+            savedSessionLogs.unshift(logEntry);
+            if (savedSessionLogs.length > 50) savedSessionLogs.pop();
+            try {
+                localStorage.setItem('cyber_session_logs_reza', JSON.stringify(savedSessionLogs));
+            } catch(e) {
+                console.error("Storage error:", e);
+            }
+        }
+
+        function renderStoredLogs() {
+            if (!logsContainer) return;
+            if (savedSessionLogs.length === 0) {
+                logsContainer.innerHTML = '<div class="text-center text-xs text-slate-500 py-3">هنوز رویدادی ثبت نشده است.</div>';
+                return;
+            }
+            logsContainer.innerHTML = '';
+            savedSessionLogs.forEach(log => {
+                const logItem = document.createElement('div');
+                logItem.className = `p-3 rounded-xl text-xs flex justify-between items-center border ${
+                    log.type === 'alert' ? 'bg-rose-950/40 border-rose-800/60 text-rose-300' :
+                    log.type === 'success' ? 'bg-cyan-950/40 border-cyan-800/60 text-cyan-300' :
+                    'bg-slate-900/60 border-slate-800/60 text-slate-300'
+                }`;
+                logItem.innerHTML = `
+                    <div class="flex items-center gap-2 truncate">
+                        <span>${log.type === 'alert' ? '🚨' : log.type === 'success' ? '✅' : '📌'}</span>
+                        <span class="font-medium truncate">[طراح: REZA] [${log.name}] ${log.title}</span>
+                    </div>
+                    <div class="font-mono text-[10px] text-slate-400 bg-slate-950 px-2.5 py-1 rounded-md shrink-0 border border-slate-800">
+                        ${log.displayTime} - ${log.displayDate}
+                    </div>
+                `;
+                logsContainer.appendChild(logItem);
+            });
+        }
+
+        function startSessionTimer() {
+            if (sessionTimerInterval) clearInterval(sessionTimerInterval);
+            sessionSeconds = 0;
+            sessionTimerInterval = setInterval(() => {
+                sessionSeconds++;
+                const mins = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
+                const secs = String(sessionSeconds % 60).padStart(2, '0');
+                const timerEl = document.getElementById('metric-timer');
+                if (timerEl) timerEl.innerText = `${mins}:${secs}`;
+            }, 1000);
+        }
+
+        function updateMetricsDisplay() {
+            const labelStat = document.getElementById('metric-label-stat');
+            const labelEff = document.getElementById('metric-label-eff');
+            const alertEl = document.getElementById('metric-alerts');
+            const focusEl = document.getElementById('metric-focus');
+
+            if (studentData.mode === 'awake') {
+                if (labelStat) labelStat.innerText = "هشدارهای بیداری";
+                if (labelEff) labelEff.innerText = "شاخص تمرکز";
+                if (alertEl) alertEl.innerText = alertCount;
+                
+                if (totalFramesCount > 0) {
+                    const focusScore = Math.max(0, Math.round(100 - (drowsyFramesCount / totalFramesCount) * 100));
+                    if (focusEl) {
+                        focusEl.innerText = `${focusScore}%`;
+                        focusEl.className = `text-xs font-mono font-bold mt-1 ${focusScore > 80 ? 'text-emerald-400' : focusScore > 50 ? 'text-amber-400' : 'text-rose-400'}`;
+                    }
+                }
+            } else {
+                if (labelStat) labelStat.innerText = "دفعات خواب رفتن";
+                if (labelEff) labelEff.innerText = "وضعیت خواب";
+                if (alertEl) alertEl.innerText = sleepEventsCount;
+                if (focusEl) {
+                    focusEl.innerText = lastStateLogged === 'asleep' ? 'در خواب 🌙' : 'بیدار / هشیار 👀';
+                    focusEl.className = `text-[11px] font-bold mt-1 ${lastStateLogged === 'asleep' ? 'text-blue-400 animate-pulse' : 'text-emerald-400'}`;
+                }
+            }
+        }
+
+        function requestOpenReports() {
+            if (isReportsUnlocked) {
+                if (logsContainer.classList.contains('hidden')) {
+                    renderStoredLogs();
+                    logsContainer.classList.remove('hidden');
+                    reportsLockedMsg.classList.add('hidden');
+                    toggleReportsBtn.innerHTML = '<span>بستن گزارش‌ها 🔓</span>';
+                } else {
+                    logsContainer.classList.add('hidden');
+                    reportsLockedMsg.classList.remove('hidden');
+                    toggleReportsBtn.innerHTML = '<span>مشاهده گزارش‌ها 🔒</span>';
+                }
+            } else {
+                passwordModal.classList.remove('hidden');
+                reportPasswordInput.value = '';
+                passwordError.classList.add('hidden');
+                reportPasswordInput.focus();
+            }
+        }
+
+        function closePasswordModal() {
+            passwordModal.classList.add('hidden');
+        }
+
+        function verifyReportPassword() {
+            const enteredPass = reportPasswordInput.value.trim();
+            if (enteredPass === CORRECT_PASSWORD_HASH) {
+                isReportsUnlocked = true;
+                closePasswordModal();
+                renderStoredLogs();
+                logsContainer.classList.remove('hidden');
+                reportsLockedMsg.classList.add('hidden');
+                toggleReportsBtn.innerHTML = '<span>بستن گزارش‌ها 🔓</span>';
+                showToast("کد دسترسی تایید شد. لاگ‌های سامانه REZA بارگذاری شد ✅");
+            } else {
+                passwordError.classList.remove('hidden');
+                showToast("کد دسترسی نامعتبر است!", true);
+            }
+        }
+
+        let audioCtx = null;
+        function playAlarmSound() {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const osc = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                osc.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.35);
+            } catch (e) {
+                console.error("Audio error:", e);
+            }
+        }
+
+        function showToast(message, isError = false) {
+            toastText.innerText = message;
+            toast.className = `fixed top-6 z-50 transition-all duration-300 transform translate-y-0 opacity-100 ${isError ? 'bg-rose-950/95 border-rose-500/50 text-rose-200' : 'bg-cyan-950/95 border-cyan-500/50 text-cyan-200'} backdrop-blur-xl px-6 py-3.5 rounded-2xl shadow-2xl font-medium text-xs border flex items-center gap-3`;
+            setTimeout(() => {
+                toast.className = 'fixed top-6 z-50 transition-all duration-300 transform -translate-y-20 opacity-0 bg-blue-600 text-white px-6 py-3.5 rounded-2xl shadow-2xl font-medium text-xs border';
+            }, 3500);
+        }
+
+        function addLogEntry(eventTitle, eventType = 'info') {
+            saveLogToStorage(eventTitle, eventType);
+            if (isReportsUnlocked) {
+                renderStoredLogs();
+            }
+        }
+
+        function sendTelegramMessage(msg) {
+            const now = Date.now();
+            if (now - lastAlertTime > 12000) {
+                lastAlertTime = now;
+                const modeTitle = studentData.mode === 'awake' ? '🟢 حالت بیداری (کلاس درس)' : '🌙 حالت خواب (پایش استراحت)';
+                const fullMsg = `🛡️ سامانه سایبرنتیک REZA (طراح: REZA)\n👤 کاربر: ${studentData.name}\n📚 رده: ${studentData.grade}\n🎯 حالت: ${modeTitle}\n📊 وضعیت: ${msg}\n⏰ ساعت: ${new Date().toLocaleTimeString('fa-IR')}`;
+                
+                fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: CHAT_ID, text: fullMsg })
+                }).catch(err => console.error("Telegram error:", err));
+            }
+        }
+
+        function sendPhotoToConsultant() {
+            if (!videoElement.srcObject) {
+                showToast("دوربین فعال نیست!", true);
+                return;
+            }
+
+            showToast("در حال اسکن زنده و ارسال تصویر به مشاور (سیستم REZA)...");
+
+            snapshotCanvas.width = videoElement.videoWidth || 640;
+            snapshotCanvas.height = videoElement.videoHeight || 480;
+            const ctx = snapshotCanvas.getContext('2d');
+            
+            ctx.translate(snapshotCanvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(videoElement, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+
+            snapshotCanvas.toBlob(blob => {
+                const formData = new FormData();
+                formData.append('chat_id', CHAT_ID);
+                formData.append('photo', blob, 'cyber_snapshot.jpg');
+                formData.append('caption', `📸 گزارش تصویری بیومتریک (طراح: REZA)\n👤 کاربر: ${studentData.name}\n📚 پایه: ${studentData.grade}\n⏰ زمان: ${new Date().toLocaleTimeString('fa-IR')}`);
+
+                fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.ok) {
+                        showToast("تصویر با موفقیت به ربات مشاور ارسال شد! ✅");
+                        addLogEntry(`ارسال اسکرین‌شات زنده به مشاور`, 'success');
+                    } else {
+                        showToast("خطا در ارسال تصویر به تلگرام.", true);
+                    }
+                })
+                .catch(err => {
+                    console.error("Photo send error:", err);
+                    showToast("خطای شبکه در ارسال تصویر.", true);
+                });
+            }, 'image/jpeg', 0.9);
+        }
+
+        function calculateEAR(eye, landmarks) {
+            const p1 = landmarks[eye[1]], p5 = landmarks[eye[5]];
+            const v1 = Math.hypot(p1.x - p5.x, p1.y - p5.y);
+            const p2 = landmarks[eye[2]], p4 = landmarks[eye[4]];
+            const v2 = Math.hypot(p2.x - p4.x, p2.y - p4.y);
+            const p0 = landmarks[eye[0]], p3 = landmarks[eye[3]];
+            const h = Math.hypot(p0.x - p3.x, p0.y - p3.y);
+            return (v1 + v2) / (2.0 * h);
+        }
+
+        const LEFT_EYE = [362, 385, 387, 263, 373, 380];
+        const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
+
+        function validateHumanFace(landmarks) {
+            if (!landmarks || landmarks.length < 468) return false;
+            const chin = landmarks[152];
+            const forehead = landmarks[10];
+            const leftCheek = landmarks[234];
+            const rightCheek = landmarks[454];
+            
+            const verticalSpan = Math.hypot(chin.x - forehead.x, chin.y - forehead.y);
+            const horizontalSpan = Math.hypot(leftCheek.x - rightCheek.x, leftCheek.y - rightCheek.y);
+            
+            if (verticalSpan < 0.1 || horizontalSpan < 0.1) return false;
+            const ratio = verticalSpan / horizontalSpan;
+            return ratio > 0.6 && ratio < 2.0;
+        }
+
+        // Strict 3-step calibration waiting logic (Center -> Left -> Right)
+        function processCalibration(landmarks) {
+            const noseTip = landmarks[1];
+            const leftCheek = landmarks[234];
+            const rightCheek = landmarks[454];
+            const leftEyeOuter = landmarks[33];
+            const rightEyeOuter = landmarks[263];
+
+            // Horizontal relative position of nose tip between left and right facial boundaries
+            const faceWidth = Math.abs(rightCheek.x - leftCheek.x);
+            const nosePositionRatio = (noseTip.x - leftCheek.x) / (faceWidth || 1);
+
+            let isConditionMet = false;
+            let percentBase = 0;
+
+            if (calibPhase === 1) {
+                calibTitle.innerText = "مرحله ۱ از ۳: اسکن روبرو (مرکز)";
+                calibDesc.innerText = "لطفاً سر خود را مستقیماً رو به دوربین نگاه دارید و ثابت بمانید...";
+                percentBase = 0;
+
+                // Nose should be roughly centered (between 0.42 and 0.58)
+                if (nosePositionRatio >= 0.40 && nosePositionRatio <= 0.60) {
+                    isConditionMet = true;
+                    calibStatusHint.innerText = `✅ چهره در مرکز تثبیت شد (${calibHoldFrames}/${REQUIRED_HOLD_FRAMES})`;
+                    calibStatusHint.className = "text-[11px] font-mono text-emerald-300 bg-emerald-950/40 py-2 px-3 rounded-xl border border-emerald-800/50";
+                } else {
+                    calibStatusHint.innerText = "⚠️ لطفاً سر خود را دقیقا در مرکز کادر تنظیم کنید";
+                    calibStatusHint.className = "text-[11px] font-mono text-amber-300 bg-amber-950/40 py-2 px-3 rounded-xl border border-amber-800/50";
+                }
+            } 
+            else if (calibPhase === 2) {
+                calibTitle.innerText = "مرحله ۲ از ۳: اسکن سمت چپ";
+                calibDesc.innerText = "لطفاً سر خود را به سمت چپ بچرخانید تا سیستم تایید کند...";
+                percentBase = 33;
+
+                // When user turns head to their left (mirrored camera: nose shifts towards right/edge)
+                if (nosePositionRatio > 0.58) {
+                    isConditionMet = true;
+                    calibStatusHint.innerText = `✅ چرخش به چپ تایید شد (${calibHoldFrames}/${REQUIRED_HOLD_FRAMES})`;
+                    calibStatusHint.className = "text-[11px] font-mono text-emerald-300 bg-emerald-950/40 py-2 px-3 rounded-xl border border-emerald-800/50";
+                } else {
+                    calibStatusHint.innerText = "⏳ منتظر چرخش سر کاربر به سمت چپ...";
+                    calibStatusHint.className = "text-[11px] font-mono text-cyan-300 bg-cyan-950/40 py-2 px-3 rounded-xl border border-cyan-800/50";
+                }
+            } 
+            else if (calibPhase === 3) {
+                calibTitle.innerText = "مرحله ۳ از ۳: اسکن سمت راست";
+                calibDesc.innerText = "لطفاً سر خود را به سمت راست بچرخانید تا کالیبراسیون REZA تکمیل شود...";
+                percentBase = 66;
+
+                // When user turns head to their right (mirrored camera: nose shifts towards left/edge)
+                if (nosePositionRatio < 0.42) {
+                    isConditionMet = true;
+                    calibStatusHint.innerText = `✅ چرخش به راست تایید شد (${calibHoldFrames}/${REQUIRED_HOLD_FRAMES})`;
+                    calibStatusHint.className = "text-[11px] font-mono text-emerald-300 bg-emerald-950/40 py-2 px-3 rounded-xl border border-emerald-800/50";
+                } else {
+                    calibStatusHint.innerText = "⏳ منتظر چرخش سر کاربر به سمت راست...";
+                    calibStatusHint.className = "text-[11px] font-mono text-cyan-300 bg-cyan-950/40 py-2 px-3 rounded-xl border border-cyan-800/50";
+                }
+            }
+
+            if (isConditionMet) {
+                calibHoldFrames++;
+            } else {
+                // Decay slightly if movement breaks, ensuring deliberate hold
+                if (calibHoldFrames > 0) calibHoldFrames--;
+            }
+
+            let currentProgress = percentBase + Math.round((calibHoldFrames / REQUIRED_HOLD_FRAMES) * 33);
+            calibProgress.style.width = `${Math.min(100, currentProgress)}%`;
+
+            if (calibHoldFrames >= REQUIRED_HOLD_FRAMES) {
+                calibHoldFrames = 0;
+                calibPhase++;
+                if (calibPhase > 3) {
+                    isCalibrating = false;
+                    calibrationSection.style.display = 'none';
+                    cameraSection.style.display = 'flex';
+                    
+                    const isAwakeMode = studentData.mode === 'awake';
+                    modeBadge.innerText = `حالت: ${isAwakeMode ? 'اسکن بیداری 🟢' : 'اسکن خواب 🌙'}`;
+                    
+                    startSessionTimer();
+                    
+                    if (isAwakeMode) {
+                        showToast("کالیبراسیون ۳ مرحله‌ای REZA با موفقیت کامل انجام شد!");
+                        addLogEntry(`تکمیل کالیبراسیون ۳ مرحله‌ای (طراح: REZA)`, 'success');
+                        sendTelegramMessage("سامانه اسکن بیداری و کلاس REZA با موفقیت کالیبره و فعال شد.");
+                    } else {
+                        showToast("کالیبراسیون خواب REZA انجام شد ✅");
+                        addLogEntry(`کالیبراسیون و اسکن خواب REZA انجام شد`, 'success');
+                        sendTelegramMessage("سامانه اسکن و پایش خواب REZA فعال شد.");
+                    }
+                }
+            }
+        }
+
+        function onResults(results) {
+            loadingOverlay.style.display = 'none';
+
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                statusBox.className = 'w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-rose-600 text-white border border-rose-500/40 animate-pulse';
+                statusBox.innerText = '⚠️ چهره انسان در محدوده دوربین یافت نشد (طراح: REZA)!';
+                earBadge.innerText = 'EAR: --';
+                return;
+            }
+            
+            const landmarks = results.multiFaceLandmarks[0];
+
+            if (!validateHumanFace(landmarks)) {
+                statusBox.className = 'w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-amber-600 text-white border border-amber-500/40 animate-pulse';
+                statusBox.innerText = '⚠️ شیء یا تصویر غیرمرتبط شناسایی شد! لطفاً چهره واقعی خود را قرار دهید.';
+                earBadge.innerText = 'EAR: INVALID';
+                return;
+            }
+
+            if (isCalibrating) {
+                processCalibration(landmarks);
+                return;
+            }
+
+            totalFramesCount++;
+            const avgEAR = (calculateEAR(LEFT_EYE, landmarks) + calculateEAR(RIGHT_EYE, landmarks)) / 2.0;
+            earBadge.innerText = `EAR: ${avgEAR.toFixed(2)}`;
+
+            if (studentData.mode === 'awake') {
+                if (avgEAR < CLOSED_THRESHOLD) {
+                    consecutiveFrames++;
+                    drowsyFramesCount++;
+                    statusBox.className = 'w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-rose-600 text-white animate-pulse border border-rose-500/40';
+                    statusBox.innerText = `⚠️ هشدار افت هشیاری سامانه REZA! (EAR: ${avgEAR.toFixed(2)})`;
+                    
+                    playAlarmSound();
+
+                    if (consecutiveFrames >= FRAME_LIMIT && lastStateLogged !== 'sleep_alert') {
+                        lastStateLogged = 'sleep_alert';
+                        alertCount++;
+                        addLogEntry(`هشدار افت هشیاری در کلاس (EAR: ${avgEAR.toFixed(2)})`, 'alert');
+                        sendTelegramMessage(`🚨 هشدار REZA! افت هشیاری و خواب‌آلودگی کاربر در کلاس. (EAR: ${avgEAR.toFixed(2)})`);
+                    }
+                } else {
+                    consecutiveFrames = 0;
+                    statusBox.className = 'w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-emerald-600 text-white border border-emerald-500/40';
+                    statusBox.innerText = '🟢 کاربر بیدار و متمرکز است (تاییدیه هوش مصنوعی REZA)';
+
+                    if (lastStateLogged !== 'awake') {
+                        lastStateLogged = 'awake';
+                        addLogEntry(`تایید بیداری و تمرکز کامل در کلاس (REZA)`, 'success');
+                        sendTelegramMessage('✅ کاربر در حال حاضر بیدار، هشیار و متمرکز در کلاس است.');
+                    }
+                }
+            } else {
+                if (avgEAR < CLOSED_THRESHOLD) {
+                    consecutiveFrames++;
+                    statusBox.className = 'w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-blue-600 text-white border border-blue-500/40';
+                    statusBox.innerText = '🌙 حالت خواب و پایش استراحت REZA فعال است';
+
+                    if (consecutiveFrames >= FRAME_LIMIT && lastStateLogged !== 'asleep') {
+                        lastStateLogged = 'asleep';
+                        sleepEventsCount++;
+                        addLogEntry(`ثبت وضعیت استراحت در حالت خواب`, 'success');
+                    }
+                } else {
+                    consecutiveFrames = 0;
+                    statusBox.className = 'w-full text-center py-3.5 px-4 rounded-2xl font-bold text-xs shadow-lg bg-cyan-600 text-white border border-cyan-400/40';
+                    statusBox.innerText = '🌙 پایش استراحت و خواب REZA در جریان است';
+
+                    if (lastStateLogged !== 'awake_in_sleep_mode') {
+                        lastStateLogged = 'awake_in_sleep_mode';
+                    }
+                }
+            }
+            updateMetricsDisplay();
+        }
+
+        async function startCalibration() {
+            const nameVal = studentNameInput.value.trim();
+            const gradeVal = studentGradeSelect.value;
+            const idVal = studentIdInput.value.trim();
+
+            if (!nameVal) {
+                showToast("لطفاً نام و نام خانوادگی را وارد کنید!", true);
+                return;
+            }
+
+            studentData.name = nameVal;
+            studentData.grade = gradeVal;
+            studentData.studentId = idVal || 'N/A';
+            studentData.mode = modeSelect.value;
+
+            dispName.innerText = `کاربر: ${studentData.name}`;
+            dispGrade.innerText = `پایه: ${studentData.grade}`;
+
+            setupSection.style.display = 'none';
+            calibrationSection.style.display = 'flex';
+
+            showToast("در حال اتصال ایمن به سنسور دوربین REZA...");
+
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("مرورگر شما از قابلیت دوربین پشتیبانی نمی‌کند.");
+                }
+
+                const mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+                    audio: false
+                });
+                
+                videoElement.srcObject = mediaStream;
+                await videoElement.play();
+
+                const faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+                
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                faceMesh.onResults(onResults);
+
+                const cameraInstance = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (videoElement.readyState >= 2) {
+                            await faceMesh.send({ image: videoElement });
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                isCalibrating = true;
+                calibPhase = 1;
+                calibHoldFrames = 0;
+
+                await cameraInstance.start();
+                showToast("کالیبراسیون ۳ مرحله‌ای REZA شروع شد. لطفا دستورات را دنبال کنید.");
+            } catch (err) {
+                loadingOverlay.style.display = 'none';
+                showToast("خطا در دسترسی به دوربین یا راه‌اندازی هوش مصنوعی REZA.", true);
+                console.error(err);
+            }
+        }
+
+        function resetSystem() {
+            location.reload();
+        }
+    </script>
+</body>
+</html>
